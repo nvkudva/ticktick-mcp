@@ -1,0 +1,12 @@
+node_modules/
+.env
+.next/
+.turbo/
+dist/
+build/
+__pycache__/
+.DS_Store
+*.log
+.npm-debug.log*
+*.npm
+coverage/

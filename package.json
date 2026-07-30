@@ -1,0 +1,36 @@
+{
+  "name": "ticktick-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for TickTick - Access and manage your tasks, projects and more via the TickTick Open API",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "ticktick-mcp": "bin/ticktick-mcp.js"
+  },
+  "scripts": {
+    "start": "node bin/ticktick-mcp.js",
+    "dev": "node --watch bin/ticktick-mcp.js",
+    "test": "node --test --test-reporter=spec tests/*.test.js",
+    "test:watch": "node --test --watch tests/*.test.js",
+    "test:client": "node --test --test-reporter=spec tests/client.test.js",
+    "test:projects": "node --test --test-reporter=spec tests/projects.test.js",
+    "test:tasks": "node --test --test-reporter=spec tests/tasks.test.js"
+  },
+  "keywords": [
+    "mcp",
+    "ticktick",
+    "tasks",
+    "productivity",
+    "model-context-protocol"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.8.0",
+    "node-fetch": "^3.3.2",
+    "open": "^10.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
