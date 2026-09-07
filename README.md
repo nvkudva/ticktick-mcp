@@ -1,149 +1,67 @@
 # ticktick-mcp
 
-> A Model Context Protocol (MCP) server for [TickTick](https://ticktick.com), exposing all TickTick Open API endpoints as MCP tools so Claude (and any MCP-compatible AI) can manage your tasks and projects.
+A stdio MCP server that exposes the TickTick task API as 14 tools, for use from Claude Desktop or any MCP client.
 
----
+It authenticates with a single bearer token from an environment variable, so there is no OAuth flow to run.
 
-## Features
+## Requirements
 
-- 🗂 **Full Project Management** — list, get, create, update, delete projects
-- ✅ **Full Task Management** — create, read, update, complete, delete tasks
-- 🔀 **Move Tasks** — move tasks between projects
-- 🔍 **Advanced Filtering** — filter tasks by project, date, priority, tag, status
-- 📋 **Completed Tasks** — query completed tasks within any date range
-- 🔐 **Simple Token Auth** — just set an env var, no OAuth dance needed
-- ⚡ **Zero Config** — run instantly with `npx`
+- Node 18 or newer (`fetch` and the `node:test` runner are both assumed)
+- A TickTick account
+- A TickTick API access token. Register an application at [developer.ticktick.com](https://developer.ticktick.com) to obtain one. The server refuses to start without it.
 
----
+## Run it
 
-## Quick Start
-
-### 1. Get a TickTick API Access Token
-
-Go to [developer.ticktick.com](https://developer.ticktick.com) and register an application to obtain an access token (or use a personal access token from the dashboard).
-
-### 2. Run with npx
+The name `ticktick-mcp` on the public npm registry belongs to an unrelated package. Install from this repository, not from npm.
 
 ```bash
-TICKTICK_ACCESS_TOKEN=your_token_here npx ticktick-mcp
+git clone https://github.com/nvkudva/ticktick-mcp.git
+cd ticktick-mcp
+npm install
+TICKTICK_ACCESS_TOKEN=your_token_here npm start
 ```
 
-### 3. Or install globally
+The process stays in the foreground and prints nothing on success — an MCP server talks over stdio, so silence means it is waiting for a client.
 
-```bash
-npm install -g ticktick-mcp
-TICKTICK_ACCESS_TOKEN=your_token_here ticktick-mcp
-```
-
----
-
-## Claude Desktop Configuration
-
-Add this to your `claude_desktop_config.json`:
+To wire it into Claude Desktop, add this to `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows), using the absolute path to your clone:
 
 ```json
 {
   "mcpServers": {
     "ticktick": {
-      "command": "npx",
-      "args": ["ticktick-mcp"],
-      "env": {
-        "TICKTICK_ACCESS_TOKEN": "your_token_here"
-      }
+      "command": "node",
+      "args": ["/absolute/path/to/ticktick-mcp/bin/ticktick-mcp.js"],
+      "env": { "TICKTICK_ACCESS_TOKEN": "your_token_here" }
     }
   }
 }
 ```
 
-The config file is located at:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+## Configuration
 
----
-
-## Environment Variables
-
-| Variable | Required | Description |
+| Variable | Required | What it is |
 |---|---|---|
-| `TICKTICK_ACCESS_TOKEN` | ✅ Yes | Your TickTick API access token (Bearer token) |
+| `TICKTICK_ACCESS_TOKEN` | Yes | TickTick API bearer token, sent as `Authorization: Bearer <token>` |
 
----
+## How it works
 
-## Available Tools
+Three layers. `src/client.js` holds `TickTickClient`, whose single `request()` method does all URL assembly, auth, body serialisation and status handling against `https://api.ticktick.com`; every named method is a one-line delegate. `src/tools/projects.js` and `src/tools/tasks.js` export plain arrays of `{name, description, inputSchema, handler}` — six project tools and eight task tools. `src/index.js` loops over both arrays, converts each JSON Schema to a Zod shape and registers it with the MCP SDK, wrapping every handler in one try/catch. `bin/ticktick-mcp.js` is a shebang shim that imports `src/index.js`. There is no cache, no session and no persisted state beyond the token.
 
-### Project Tools
+Task priority is `0` none, `1` low, `3` medium, `5` high. Task status is `0` active, `2` completed.
 
-| Tool | Description |
-|---|---|
-| `ticktick_get_all_projects` | List all projects in your account |
-| `ticktick_get_project` | Get a project by ID |
-| `ticktick_get_project_data` | Get project with all its tasks and columns |
-| `ticktick_create_project` | Create a new project |
-| `ticktick_update_project` | Update project name, color, view mode, etc. |
-| `ticktick_delete_project` | Delete a project (and all its tasks) |
+## Status
 
-### Task Tools
+Project and task CRUD (`get_all_projects`, `get_project`, `get_project_data`, `create_project`, `update_project`, `delete_project`, `get_task`, `create_task`, `update_task`, `complete_task`, `delete_task`) map to endpoints documented in the TickTick Open API.
 
-| Tool | Description |
-|---|---|
-| `ticktick_get_task` | Get a task by project ID and task ID |
-| `ticktick_create_task` | Create a new task with full metadata |
-| `ticktick_update_task` | Update any field on an existing task |
-| `ticktick_complete_task` | Mark a task as completed |
-| `ticktick_delete_task` | Permanently delete a task |
-| `ticktick_move_tasks` | Move tasks between projects |
-| `ticktick_get_completed_tasks` | Query completed tasks by date range |
-| `ticktick_filter_tasks` | Advanced filtering by project, date, priority, tag, status |
+Known gaps, as of 2026-09-07:
 
----
+- `ticktick_move_tasks`, `ticktick_get_completed_tasks` and `ticktick_filter_tasks` call paths that are not in the documented Open API surface. They have not been confirmed to work against a live token and may return 404.
+- `zod` is imported by `src/index.js` but is not declared in `package.json`. It resolves today only through npm hoisting of the SDK's own copy; pnpm or Yarn PnP will fail at import.
+- The schema converter in `src/index.js` handles one level only. Nested shapes for `items` and `moves` are flattened to "array of anything", so those arguments are not validated before they reach TickTick.
+- `npm test` runs live integration tests against a real account: it creates and deletes real projects and tasks, and errors without `TICKTICK_ACCESS_TOKEN`. Only the client constructor tests run offline. Do not run it against an account you care about.
+- `ticktick_delete_project` and `ticktick_delete_task` are exposed with no confirmation step and no dry run. Deletion is permanent.
+- Requests have no timeout, no retry and no 429 handling, so a slow upstream will hang a tool call.
 
-## Task Priority Values
+## License
 
-| Value | Level |
-|---|---|
-| `0` | None |
-| `1` | Low |
-| `3` | Medium |
-| `5` | High |
-
-## Task Status Values
-
-| Value | Meaning |
-|---|---|
-| `0` | Active (Normal) |
-| `2` | Completed |
-
----
-
-## Example Prompts (for Claude)
-
-Once connected, you can ask Claude things like:
-
-- *"Show me all my TickTick projects"*
-- *"Create a task called 'Review PR' in my Work project, due tomorrow with high priority"*
-- *"List all tasks in the 'Personal' project"*
-- *"Mark the task [task ID] as complete"*
-- *"Move the task [task ID] from 'Inbox' to 'Work'"*
-- *"What tasks did I complete last week?"*
-- *"Find all high-priority tasks due this month"*
-
----
-
-## Development
-
-```bash
-git clone <repo>
-cd ticktick-mcp
-npm install
-TICKTICK_ACCESS_TOKEN=your_token npm run dev
-```
-
----
-
-## API Reference
-
-This server implements the [TickTick Open API](https://developer.ticktick.com/docs#/openapi).
-
-- Base URL: `https://api.ticktick.com`
-- Auth: Bearer token (`Authorization: Bearer <token>`)
-- Scopes: `tasks:read`, `tasks:write`
+No licence file yet — all rights reserved. `package.json` declares MIT, but the repository carries no licence text.
